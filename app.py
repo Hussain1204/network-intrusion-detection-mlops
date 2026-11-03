@@ -1,94 +1,67 @@
-import sys
-"""
-    This Python script sets up a FastAPI web application for training and predicting using a machine
-    learning model with MongoDB integration.
-    :return: The code provided is a Python FastAPI application that sets up routes for training a
-    machine learning model and making predictions based on uploaded CSV files.
-"""
-import os
+"""FastAPI service for training and CSV-based intrusion detection."""
 
-import certifi
-ca = certifi.where()
+from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-mongo_db_url = os.getenv("MONGODB_URL_KEY")
-print(mongo_db_url)
-import pymongo
-from networksecurity.exception.exception import NetworkSecurityException
-from networksecurity.logging.logger import logging
-from networksecurity.pipeline.training_pipeline import TrainingPipeline
-
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, File, UploadFile,Request
-from uvicorn import run as app_run
-from fastapi.responses import Response
-from starlette.responses import RedirectResponse
 import pandas as pd
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse
 
-from networksecurity.utils.main_utils.utils import load_object
+from networksecurity.data import TARGET_COLUMN
+from networksecurity.pipeline import DEFAULT_DATASET, DEFAULT_MODEL_PATH, predict, train_model
 
-from networksecurity.utils.ml_utils.model.estimator import NetworkModel
-
-
-client = pymongo.MongoClient(mongo_db_url, tlsCAFile=ca)
-
-from networksecurity.constant.training_pipeline import DATA_INGESTION_COLLECTION_NAME
-from networksecurity.constant.training_pipeline import DATA_INGESTION_DATABASE_NAME
-
-database = client[DATA_INGESTION_DATABASE_NAME]
-collection = database[DATA_INGESTION_COLLECTION_NAME]
-
-app = FastAPI()
-origins = ["*"]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="Network Security ML API",
+    description="Train and run a network traffic anomaly classifier.",
+    version="0.1.0",
 )
 
-from fastapi.templating import Jinja2Templates
-templates = Jinja2Templates(directory="./templates")
 
-@app.get("/", tags=["authentication"])
-async def index():
+@app.get("/", include_in_schema=False)
+async def index() -> RedirectResponse:
     return RedirectResponse(url="/docs")
 
-@app.get("/train")
-async def train_route():
-    try:
-        train_pipeline=TrainingPipeline()
-        train_pipeline.run_pipeline()
-        return Response("Training is successful")
-    except Exception as e:
-        raise NetworkSecurityException(e,sys)
-    
-@app.post("/predict")
-async def predict_route(request: Request,file: UploadFile = File(...)):
-    try:
-        df=pd.read_csv(file.file)
-        #print(df)
-        preprocesor=load_object("final_model/preprocessor.pkl")
-        final_model=load_object("final_model/model.pkl")
-        network_model = NetworkModel(preprocessor=preprocesor,model=final_model)
-        print(df.iloc[0])
-        y_pred = network_model.predict(df)
-        print(y_pred)
-        df['predicted_column'] = y_pred
-        print(df['predicted_column'])
-        #df['predicted_column'].replace(-1, 0)
-        #return df.to_json()
-        df.to_csv('prediction_output/output.csv')
-        table_html = df.to_html(classes='table table-striped')
-        #print(table_html)
-        return templates.TemplateResponse("table.html", {"request": request, "table": table_html})
-        
-    except Exception as e:
-            raise NetworkSecurityException(e,sys)
 
-    
-if __name__=="__main__":
-    app_run(app,host="localhost",port=8000)
+@app.get("/health", tags=["health"])
+async def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "model_trained": Path(DEFAULT_MODEL_PATH).is_file(),
+    }
+
+
+@app.post("/train", tags=["model"])
+async def train() -> dict:
+    """Train using the repository dataset and save the model locally."""
+    try:
+        return train_model(data_path=DEFAULT_DATASET, model_path=DEFAULT_MODEL_PATH)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Training failed: {exc}") from exc
+
+
+@app.post("/predict", tags=["model"])
+async def predict_csv(file: UploadFile = File(...)) -> dict:
+    """Predict labels for a CSV upload and return rows plus predicted labels."""
+    if not file.filename or Path(file.filename).suffix.lower() != ".csv":
+        raise HTTPException(status_code=400, detail="Upload a .csv file.")
+    try:
+        frame = pd.read_csv(file.file)
+    except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read CSV: {exc}") from exc
+    finally:
+        await file.close()
+
+    frame = frame.loc[:, ~frame.columns.astype(str).str.match(r"^Unnamed(:|$)")]
+    if TARGET_COLUMN in frame.columns:
+        frame = frame.drop(columns=[TARGET_COLUMN])
+    try:
+        predictions = predict(frame, model_path=DEFAULT_MODEL_PATH)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
+
+    return {"count": len(predictions), "predictions": predictions}

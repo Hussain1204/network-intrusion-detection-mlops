@@ -1,39 +1,19 @@
-'''
-The setup.py file is an essential part of packaging and 
-distributing Python projects. It is used by setuptools 
-(or distutils in older Python versions) to define the configuration 
-of your project, such as its metadata, dependencies, and more
-'''
+from pathlib import Path
 
-from setuptools import find_packages,setup
-from typing import List
+from setuptools import find_packages, setup
 
-def get_requirements()->List[str]:
-    """
-    Thiss function will return list of requirements
-    
-    """
-    requirement_lst:List[str]=[]
-    try:
-        with open('requirements.txt','r') as file:
-            #Read lines from the file
-            lines=file.readlines()
-            ## Process each line
-            for line in lines:
-                requirement=line.strip()
-                ## ignore empty lines and -e .
-                if requirement and requirement!= '-e .':
-                    requirement_lst.append(requirement)
-    except FileNotFoundError:
-        print("requirements.txt file not found")
-
-    return requirement_lst
+ROOT = Path(__file__).parent
+requirements = [
+    line.strip()
+    for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.startswith("#")
+]
 
 setup(
-    name="NetworkSecurity",
-    version="0.0.1",
-    author="Danesh p m",
-    author_email="danesh12112002@gmail.com",
-    packages=find_packages(),
-    install_requires=get_requirements()
+    name="network-security-mlops",
+    version="0.1.0",
+    description="ML-based network intrusion detection system built using Python and MLOps principles.",
+    packages=find_packages(exclude=("tests", "tests.*")),
+    python_requires=">=3.10",
+    install_requires=requirements,
 )

@@ -1,9 +1,14 @@
-#This is a Dockerfile script used to build a Docker image for a Python application. Here's what each instruction does:
-FROM python:3.10-slim-buster
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
 WORKDIR /app
-COPY . /app
+COPY requirements.txt setup.py ./
+COPY networksecurity ./networksecurity
+RUN pip install --upgrade pip && pip install .
+COPY . .
 
-RUN apt update -y && apt install awscli -y
-
-RUN apt-get update && pip install -r requirements.txt
-CMD ["python3", "app.py"]
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

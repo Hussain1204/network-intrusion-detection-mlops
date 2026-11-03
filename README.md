@@ -1,131 +1,92 @@
-# Network Anomaly Detection System – MLOps Pipeline
+# Network Security MLOps
 
-<p align="center">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white" />
-  <img alt="scikit-learn" src="https://img.shields.io/badge/scikit--learn-F7931E?logo=scikit-learn&logoColor=white" />
-  <img alt="MLflow" src="https://img.shields.io/badge/MLflow-0194E2?logo=mlflow&logoColor=white" />
-  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" />
-  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" />
-</p>
+A small, runnable network-traffic classification project with a local training pipeline and a FastAPI prediction service. The included CSV dataset makes the core workflow work without MongoDB, AWS, or external credentials.
 
-A Bachelor’s thesis project focused on building an end-to-end MLOps pipeline for network anomaly detection. The project combines reproducible data preparation, model experimentation, API-based inference, and deployment automation to create a scalable and production-ready machine learning workflow.
-
-## Project Highlights
-
-- Designed and systematically evaluated a machine-learning pipeline for network anomaly detection, tracking experiments with **MLflow via DagsHub** and engineering **MongoDB Atlas ETL pipelines** for reproducible data preparation—improving model accuracy and pipeline efficiency by approximately **15–20%**.
-- Operationalized the trained model for production by containerizing it with **Docker** and automating deployment to **AWS ECR** using **GitHub Actions CI/CD**.
-- Built an end-to-end MLOps workflow for anomaly detection, integrating automated data preparation, model training, and experiment tracking to improve detection performance and reproducibility.
-- Developed and evaluated the ML workflow using **Python, scikit-learn, and MLflow**, optimizing preprocessing and model training pipelines for better accuracy and efficiency.
-
-## Project Overview
-
-Traditional rule-based intrusion detection systems often struggle to detect evolving cyber threats. This project applies machine learning and MLOps practices to build a scalable, maintainable, and reproducible network security solution.
-
-## Pipeline Architecture
+## Project layout
 
 ```text
-MongoDB Atlas -> Data Ingestion -> Validation -> Data Transformation -> Model Training -> MLflow / DagsHub -> FastAPI Inference -> Docker -> AWS ECR
+.
+├── app.py                       # FastAPI health, training, and prediction endpoints
+├── main.py                      # CLI training entry point
+├── networksecurity/
+│   ├── data.py                  # CSV loading and input validation
+│   └── pipeline.py              # Training, metrics, persistence, and inference
+├── data/
+│   ├── data_schema/schema.yaml  # Dataset feature schema
+│   └── phisingData.csv          # Included labeled dataset
+├── tests/                       # Automated tests
+├── testing/test.csv             # Example prediction input
+├── requirements.txt
+├── setup.py
+└── Dockerfile
 ```
 
-## Tech Stack
+## Requirements and local setup
 
-- **Language and ML:** Python, scikit-learn, pandas, NumPy
-- **Experiment tracking:** MLflow, DagsHub
-- **Data workflow:** MongoDB Atlas
-- **API and deployment:** FastAPI, Uvicorn, Docker, GitHub Actions, AWS ECR
-
-## Key Features
-
-- Network traffic data ingestion and validation
-- Feature engineering and preprocessing pipeline
-- Model training, evaluation, and artifact tracking
-- Reproducible ETL workflow for data preparation
-- FastAPI-based prediction service
-- Containerized deployment and CI/CD automation
-
-## Project Structure
-
-```text
-network-security-mlops/
-├── app.py                     # FastAPI application for training and prediction
-├── main.py                    # Training pipeline entry point
-├── requirements.txt           # Python dependencies
-├── setup.py                   # Package setup configuration
-├── Dockerfile                 # Container definition
-├── data/                      # Dataset and related data assets
-├── docs/                      # Project documentation and reports
-├── templates/                 # HTML templates for API responses
-├── testing/                   # Tests and validation scripts
-├── networksecurity/           # Core project package
-├── prediction_output/         # Inference output CSVs
-├── final_model/               # Trained model artifacts
-├── README.md                  # Project documentation
-├── push_data.py               # Data upload utility
-└── .env                       # Local environment variables
-```
-
-## Setup Instructions
-
-### 1) Clone the repository
-
-```bash
-git clone https://github.com/Hussain1204/network-security-mlops.git
-cd network-security-mlops
-```
-
-### 2) Create a virtual environment
+Python 3.10 or newer is supported. From the repository root:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-# .venv\Scripts\activate    # Windows
-```
-
-### 3) Install dependencies
-
-```bash
+# macOS/Linux
+source .venv/bin/activate
+# Windows PowerShell: .venv\\Scripts\\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4) Configure environment variables
+No `.env` file or MongoDB account is required for the local workflow.
 
-Create a `.env` file in the root directory:
-
-```env
-MONGODB_URL_KEY="mongodb+srv://<username>:<password>@<cluster-address>/"
-```
-
-## Run Model Training
+## Train a model
 
 ```bash
 python main.py
 ```
 
-This triggers the training workflow, including ingestion, validation, transformation, and model training.
-
-## Run the Inference API
+Training reads `data/phisingData.csv`, expects a numeric `Result` target column, evaluates a held-out split, and writes `artifacts/network_model.joblib`. You can supply a different labeled CSV or output path:
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+python main.py --data path/to/labeled.csv --model artifacts/custom-model.joblib
 ```
 
-Open:
+## Start the API
 
-- http://localhost:8000/docs
+Train first, then run:
 
-The `POST /predict` endpoint accepts a CSV file with network feature data and returns predictions.
+```bash
+uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+```
 
-## Docker Deployment
+- Interactive API docs: <http://127.0.0.1:8000/docs>
+- Health check: <http://127.0.0.1:8000/health>
+- `POST /train` trains from the included dataset and saves the artifact.
+- `POST /predict` accepts a CSV upload with the same feature columns as the training data. The target column may be omitted or included; if included it is ignored. The response is JSON containing the predicted labels.
+
+Example prediction with the included feature-only sample:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -F 'file=@testing/test.csv'
+```
+
+Prediction returns HTTP 503 until a model has been trained. Invalid CSVs and mismatched feature columns return HTTP 400.
+
+## Tests
+
+```bash
+pytest
+```
+
+## Docker
+
+Build and start the API (the image includes the dataset, so `/train` is available):
 
 ```bash
 docker build -t network-security-mlops .
-docker run -p 8000:8000 --env-file .env network-security-mlops
+docker run --rm -p 8000:8000 network-security-mlops
 ```
 
-## Project Type
+Then train via `POST /train`, or train locally and mount the generated `artifacts` directory into the container if you want to serve a pre-trained model.
 
-Bachelor’s thesis project focused on applying machine learning and MLOps principles to network intrusion detection.
+## Optional MongoDB integration
 
-## Summary
-
-This project demonstrates how machine learning can be used to improve network security by identifying anomalous behavior while maintaining a structured, scalable, and production-ready MLOps workflow.
+The default workflow intentionally uses the checked-in CSV to avoid requiring hosted services. MongoDB credentials should be supplied through environment variables if a future ingestion integration is enabled; never commit secrets. Use `.env.example` as a safe placeholder only.

@@ -1,49 +1,19 @@
-# This code snippet is a Python script that seems to be part of a network security application. Here's
-# a breakdown of what it does:
-from networksecurity.components.data_ingestion import DataIngestion
-from networksecurity.components.data_validation import DataValidation
-from networksecurity.components.data_transformation import DataTransformation
-from networksecurity.exception.exception import NetworkSecurityException
-from networksecurity.logging.logger import logging
-from networksecurity.entity.config_entity import DataIngestionConfig,DataValidationConfig,DataTransformationConfig
-from networksecurity.entity.config_entity import TrainingPipelineConfig
+"""Command-line entry point for model training."""
 
-from networksecurity.components.model_trainer import ModelTrainer
-from networksecurity.entity.config_entity import ModelTrainerConfig
- 
+import argparse
+import json
 
-import sys
+from networksecurity.pipeline import DEFAULT_DATASET, DEFAULT_MODEL_PATH, train_model
 
-if __name__=='__main__':
-    try:
-        trainingpipelineconfig=TrainingPipelineConfig()
-        dataingestionconfig=DataIngestionConfig(trainingpipelineconfig)
-        data_ingestion=DataIngestion(dataingestionconfig)
-        logging.info("Initiate the data ingestion")
-        dataingestionartifact=data_ingestion.initiate_data_ingestion()
-        logging.info("Data Initiation Completed")
-        print(dataingestionartifact)
-        data_validation_config=DataValidationConfig(trainingpipelineconfig)
-        data_validation=DataValidation(dataingestionartifact,data_validation_config)
-        logging.info("Initiate the data Validation")
-        data_validation_artifact=data_validation.initiate_data_validation()
-        logging.info("data Validation Completed")
-        print(data_validation_artifact)
-        data_transformation_config=DataTransformationConfig(trainingpipelineconfig)
-        logging.info("data Transformation started")
-        data_transformation=DataTransformation(data_validation_artifact,data_transformation_config)
-        data_transformation_artifact=data_transformation.initiate_data_transformation()
-        print(data_transformation_artifact)
-        logging.info("data Transformation completed")
 
-        logging.info("Model Training sstared")
-        model_trainer_config=ModelTrainerConfig(trainingpipelineconfig)
-        model_trainer=ModelTrainer(model_trainer_config=model_trainer_config,data_transformation_artifact=data_transformation_artifact)
-        model_trainer_artifact=model_trainer.initiate_model_trainer()
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Train the network intrusion classifier.")
+    parser.add_argument("--data", default=str(DEFAULT_DATASET), help="Path to a labeled CSV dataset.")
+    parser.add_argument("--model", default=str(DEFAULT_MODEL_PATH), help="Where to save the model artifact.")
+    args = parser.parse_args()
+    metrics = train_model(data_path=args.data, model_path=args.model)
+    print(json.dumps(metrics, indent=2))
 
-        logging.info("Model Training artifact created")
-        
-        
-        
-    except Exception as e:
-           raise NetworkSecurityException(e,sys)
+
+if __name__ == "__main__":
+    main()

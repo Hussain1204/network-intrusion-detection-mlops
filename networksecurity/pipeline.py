@@ -13,8 +13,9 @@ from sklearn.pipeline import Pipeline
 
 from networksecurity.data import load_dataset
 
-DEFAULT_DATASET = Path("data/phisingData.csv")
-DEFAULT_MODEL_PATH = Path("artifacts/network_model.joblib")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATASET = PROJECT_ROOT / "data" / "phisingData.csv"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "artifacts" / "network_model.joblib"
 
 
 def train_model(
@@ -23,7 +24,7 @@ def train_model(
     test_size: float = 0.2,
     random_state: int = 42,
 ) -> dict[str, Any]:
-    """Train a reproducible classifier and write its model bundle to disk."""
+    """Train a reproducible classifier and persist model plus feature metadata."""
     if not 0 < test_size < 1:
         raise ValueError("test_size must be greater than 0 and less than 1.")
 
@@ -37,33 +38,27 @@ def train_model(
         stratify = None
 
     x_train, x_test, y_train, y_test = train_test_split(
-        features,
-        labels,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=stratify,
+        features, labels, test_size=test_size, random_state=random_state, stratify=stratify
     )
     estimator = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            (
-                "classifier",
-                RandomForestClassifier(
-                    n_estimators=200,
-                    class_weight="balanced",
-                    random_state=random_state,
-                    n_jobs=-1,
-                ),
-            ),
+            ("classifier", RandomForestClassifier(
+                n_estimators=200,
+                class_weight="balanced",
+                random_state=random_state,
+                n_jobs=-1,
+            )),
         ]
     )
     estimator.fit(x_train, y_train)
     predictions = estimator.predict(x_test)
 
-    destination = Path(model_path)
+    destination = Path(model_path).expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(
-        {"model": estimator, "feature_names": features.columns.tolist()}, destination
+        {"model": estimator, "feature_names": features.columns.tolist(), "version": 1},
+        destination,
     )
 
     return {
@@ -82,17 +77,15 @@ def load_model(model_path: str | Path = DEFAULT_MODEL_PATH) -> dict[str, Any]:
     """Load a previously trained model bundle."""
     path = Path(model_path)
     if not path.is_file():
-        raise FileNotFoundError(
-            f"No trained model found at {path}. Run `python main.py` first."
-        )
+        raise FileNotFoundError(f"No trained model found at {path}. Run `python main.py` first.")
     bundle = joblib.load(path)
-    if not isinstance(bundle, dict) or "model" not in bundle or "feature_names" not in bundle:
+    if not isinstance(bundle, dict) or not {"model", "feature_names"}.issubset(bundle):
         raise ValueError(f"Invalid model artifact: {path}")
     return bundle
 
 
 def predict(features: pd.DataFrame, model_path: str | Path = DEFAULT_MODEL_PATH) -> list[Any]:
-    """Predict labels for rows with the same named features used during training."""
+    """Predict labels for records with the same named features used during training."""
     bundle = load_model(model_path)
     expected = bundle["feature_names"]
     missing = [name for name in expected if name not in features.columns]
@@ -103,4 +96,6 @@ def predict(features: pd.DataFrame, model_path: str | Path = DEFAULT_MODEL_PATH)
     non_numeric = values.select_dtypes(exclude=["number", "bool"]).columns.tolist()
     if non_numeric:
         raise ValueError(f"Features must be numeric. Unsupported columns: {non_numeric}")
+    if values.empty:
+        raise ValueError("At least one CSV row is required for prediction.")
     return bundle["model"].predict(values).tolist()

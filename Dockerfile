@@ -7,8 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt setup.py ./
 COPY networksecurity ./networksecurity
-RUN pip install --upgrade pip && pip install .
-COPY . .
+RUN python -m pip install --upgrade pip && python -m pip install . && python -m pip install pytest httpx
+
+COPY app.py main.py ./
+COPY data ./data
+COPY templates ./templates
 
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
